@@ -1,0 +1,29 @@
+// {
+//   "files": [],
+//   "references": [
+//     {
+//       "path": "./tsconfig.node.json"
+//     },
+//     {
+//       "path": "./tsconfig.app.json"
+//     },
+//     {
+//       "path": "./tsconfig.vitest.json"
+//     }
+//   ]
+// }
+
+// tsconfig.json
+{
+  "files": [],
+  "references": [{ "path": "./tsconfig.app.json" }, { "path": "./tsconfig.node.json" }],
+  // 新增配置
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    }
+  }
+}
+
+// tsconfig.app.json

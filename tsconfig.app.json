@@ -1,0 +1,16 @@
+{
+  "extends": "@vue/tsconfig/tsconfig.dom.json",
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "Node",
+    "strict": true,
+    "baseUrl": ".", // 确保 baseUrl 存在
+    "paths": {
+      "@/*": ["src/*"] // 别名 @ 指向 src
+    },
+    "types": ["vite/client"] // 加上这行，TS 才能识别 Vite 全局类型
+  },
+  "include": ["env.d.ts", "src/**/*", "src/**/*.vue"],
+  "exclude": ["node_modules", "src/**/__tests__/*"]
+}
