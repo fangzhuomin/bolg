@@ -33,37 +33,88 @@
       </el-form>
     </div>
 
-    <el-table :data="articleList" v-loading="loading" style="width: 100%">
+    <el-table :data="filteredArticleList" v-loading="loading" style="width: 100%">
       <el-table-column prop="id" label="ID" width="80" />
       <el-table-column prop="title" label="标题" min-width="200">
         <template #default="{ row }">
-          <router-link :to="`/article/edit/${row.id}`" class="article-link">
-            {{ row.title }}
-          </router-link>
+          <!-- 编辑模式 -->
+          <template v-if="row.editing">
+            <el-input v-model="row.editTitle" size="small" placeholder="请输入标题" />
+          </template>
+          <!-- 查看模式 -->
+          <template v-else>
+            <span class="article-title">{{ row.title }}</span>
+          </template>
         </template>
       </el-table-column>
-      <el-table-column prop="category" label="分类" width="120" />
+      <el-table-column prop="category" label="分类" width="120">
+        <template #default="{ row }">
+          <!-- 编辑模式 -->
+          <template v-if="row.editing">
+            <el-input v-model="row.editCategory" size="small" placeholder="请输入分类" />
+          </template>
+          <!-- 查看模式 -->
+          <template v-else>
+            {{ row.category }}
+          </template>
+        </template>
+      </el-table-column>
       <el-table-column prop="tags" label="标签" width="150">
         <template #default="{ row }">
-          <el-tag v-for="tag in row.tags" :key="tag" size="small" style="margin-right: 5px">
-            {{ tag }}
-          </el-tag>
+          <!-- 编辑模式 -->
+          <template v-if="row.editing">
+            <el-input v-model="row.editTags" size="small" placeholder="标签用逗号分隔" />
+          </template>
+          <!-- 查看模式 -->
+          <template v-else>
+            <el-tag v-for="tag in row.tags" :key="tag" size="small" style="margin-right: 5px">
+              {{ tag }}
+            </el-tag>
+          </template>
         </template>
       </el-table-column>
       <el-table-column prop="views" label="浏览" width="80" />
       <el-table-column prop="comments" label="评论" width="80" />
       <el-table-column prop="status" label="状态" width="100">
         <template #default="{ row }">
-          <el-tag :type="row.status === 'published' ? 'success' : 'info'" size="small">
-            {{ row.status === 'published' ? '已发布' : '草稿' }}
-          </el-tag>
+          <!-- 编辑模式 -->
+          <template v-if="row.editing">
+            <el-select v-model="row.editStatus" size="small">
+              <el-option label="草稿" value="draft" />
+              <el-option label="已发布" value="published" />
+            </el-select>
+          </template>
+          <!-- 查看模式 -->
+          <template v-else>
+            <el-tag :type="row.status === 'published' ? 'success' : 'info'" size="small">
+              {{ row.status === 'published' ? '已发布' : '草稿' }}
+            </el-tag>
+          </template>
         </template>
       </el-table-column>
       <el-table-column prop="createdAt" label="创建时间" width="180" />
-      <el-table-column label="操作" width="200" fixed="right">
+      <el-table-column label="操作" width="260" fixed="right">
         <template #default="{ row }">
-          <el-button type="primary" size="small" @click="handleEdit(row)"> 编辑 </el-button>
-          <el-button type="danger" size="small" @click="handleDelete(row)"> 删除 </el-button>
+          <!-- 编辑/保存按钮 -->
+          <el-button v-if="!row.editing" type="primary" size="small" @click="startEdit(row)">
+            编辑
+          </el-button>
+          <el-button v-else type="success" size="small" @click="saveEdit(row)"> 保存 </el-button>
+
+          <!-- 取消编辑按钮 -->
+          <el-button
+            v-if="row.editing"
+            size="small"
+            @click="cancelEdit(row)"
+            style="margin-left: 5px"
+          >
+            取消
+          </el-button>
+
+          <!-- 删除按钮 -->
+          <el-button type="danger" size="small" @click="handleDelete(row)" style="margin-left: 5px">
+            删除
+          </el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -72,8 +123,8 @@
       <el-pagination
         v-model:current-page="currentPage"
         v-model:page-size="pageSize"
-        :total="total"
-        :page-sizes="[10, 20, 50, 100]"
+        :total="filteredTotal"
+        :page-sizes="[5, 10, 20, 50]"
         layout="total, sizes, prev, pager, next, jumper"
         @size-change="handleSizeChange"
         @current-change="handleCurrentChange"
@@ -89,11 +140,11 @@ export default {
 </script>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
 
+// 定义文章接口
 interface Article {
   id: number
   title: string
@@ -103,9 +154,12 @@ interface Article {
   comments: number
   status: 'draft' | 'published'
   createdAt: string
+  editing?: boolean
+  editTitle?: string
+  editCategory?: string
+  editTags?: string
+  editStatus?: 'draft' | 'published'
 }
-
-const router = useRouter()
 
 // 搜索表单
 const searchForm = reactive({
@@ -113,8 +167,8 @@ const searchForm = reactive({
   status: '',
 })
 
-// 文章列表数据
-const articleList = ref<Article[]>([
+// 文章列表原始数据
+const rawArticleList = ref<Article[]>([
   {
     id: 1,
     title: 'Vue 3 入门教程',
@@ -145,36 +199,220 @@ const articleList = ref<Article[]>([
     status: 'published',
     createdAt: '2024-01-13',
   },
+  {
+    id: 4,
+    title: 'React 18 新特性解析',
+    category: '前端开发',
+    tags: ['React', 'JavaScript'],
+    views: 189,
+    comments: 25,
+    status: 'published',
+    createdAt: '2024-01-12',
+  },
+  {
+    id: 5,
+    title: 'Node.js 性能优化',
+    category: '后端开发',
+    tags: ['Node.js', '性能优化'],
+    views: 156,
+    comments: 8,
+    status: 'draft',
+    createdAt: '2024-01-11',
+  },
+  {
+    id: 6,
+    title: 'CSS Grid 布局实战',
+    category: 'CSS',
+    tags: ['CSS', '布局'],
+    views: 321,
+    comments: 34,
+    status: 'published',
+    createdAt: '2024-01-10',
+  },
+  {
+    id: 7,
+    title: 'Python 数据分析入门',
+    category: 'Python',
+    tags: ['Python', '数据分析'],
+    views: 267,
+    comments: 19,
+    status: 'published',
+    createdAt: '2024-01-09',
+  },
+  {
+    id: 8,
+    title: 'Docker 容器化部署指南',
+    category: 'DevOps',
+    tags: ['Docker', '容器化'],
+    views: 198,
+    comments: 14,
+    status: 'draft',
+    createdAt: '2024-01-08',
+  },
+  {
+    id: 9,
+    title: '小程序开发全攻略',
+    category: '小程序',
+    tags: ['小程序', '微信'],
+    views: 176,
+    comments: 11,
+    status: 'published',
+    createdAt: '2024-01-07',
+  },
+  {
+    id: 10,
+    title: 'Git 高级使用技巧',
+    category: '开发工具',
+    tags: ['Git', '版本控制'],
+    views: 145,
+    comments: 7,
+    status: 'published',
+    createdAt: '2024-01-06',
+  },
 ])
 
 // 分页
 const currentPage = ref(1)
-const pageSize = ref(10)
-const total = ref(3)
+const pageSize = ref(5)
 const loading = ref(false)
+
+// 计算属性：根据搜索条件过滤文章
+const filteredArticles = computed(() => {
+  let result = [...rawArticleList.value]
+
+  // 按标题搜索
+  if (searchForm.title.trim()) {
+    const keyword = searchForm.title.toLowerCase()
+    result = result.filter((article) => article.title.toLowerCase().includes(keyword))
+  }
+
+  // 按状态筛选
+  if (searchForm.status) {
+    result = result.filter((article) => article.status === searchForm.status)
+  }
+
+  return result
+})
+
+// 计算属性：分页后的文章列表
+const filteredArticleList = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  const end = start + pageSize.value
+  return filteredArticles.value.slice(start, end)
+})
+
+// 计算属性：过滤后的总条数
+const filteredTotal = computed(() => filteredArticles.value.length)
+
+// 开始编辑文章
+const startEdit = (article: Article) => {
+  // 取消其他正在编辑的文章
+  rawArticleList.value.forEach((item) => {
+    if (item.editing && item.id !== article.id) {
+      cancelEdit(item)
+    }
+  })
+
+  article.editing = true
+  article.editTitle = article.title
+  article.editCategory = article.category
+  article.editTags = article.tags.join(', ')
+  article.editStatus = article.status
+}
+
+// 保存编辑
+const saveEdit = (article: Article) => {
+  // 检查标题
+  const newTitle = article.editTitle ? article.editTitle.trim() : ''
+  if (newTitle === '') {
+    ElMessage.warning('标题不能为空')
+    return
+  }
+
+  // 检查分类
+  const newCategory = article.editCategory ? article.editCategory.trim() : ''
+  if (newCategory === '') {
+    ElMessage.warning('分类不能为空')
+    return
+  }
+
+  // 更新文章信息
+  article.title = newTitle
+  article.category = newCategory
+
+  // 处理标签
+  const tags = article.editTags
+    ? article.editTags
+        .split(',')
+        .map((tag) => tag.trim())
+        .filter((tag) => tag)
+    : []
+  article.tags = tags
+
+  // 处理状态
+  if (article.editStatus) {
+    article.status = article.editStatus
+  }
+
+  article.editing = false
+
+  ElMessage.success('文章修改成功')
+}
+
+// 取消编辑
+const cancelEdit = (article: Article) => {
+  article.editing = false
+  article.editTitle = undefined
+  article.editCategory = undefined
+  article.editTags = undefined
+  article.editStatus = undefined
+}
 
 // 搜索
 const handleSearch = () => {
   currentPage.value = 1
-  // 这里应该调用API搜索
-  console.log('搜索条件:', searchForm)
+  ElMessage.success('搜索完成')
 }
 
 // 重置搜索
 const resetSearch = () => {
   searchForm.title = ''
   searchForm.status = ''
-  handleSearch()
+  currentPage.value = 1
+  ElMessage.success('已重置搜索条件')
 }
 
 // 创建文章
 const handleCreate = () => {
-  router.push('/article/create')
-}
+  // 生成新ID
+  const maxId =
+    rawArticleList.value.length > 0 ? Math.max(...rawArticleList.value.map((a) => a.id)) : 0
+  const newId = maxId + 1
 
-// 编辑文章
-const handleEdit = (article: Article) => {
-  router.push(`/article/edit/${article.id}`)
+  // 创建新文章
+  const newArticle: Article = {
+    id: newId,
+    title: '新文章',
+    category: '未分类',
+    tags: ['新标签'],
+    views: 0,
+    comments: 0,
+    status: 'draft',
+    createdAt: new Date().toISOString().split('T')[0] as string, // 使用类型断言
+    editing: true,
+    editTitle: '新文章',
+    editCategory: '未分类',
+    editTags: '新标签',
+    editStatus: 'draft',
+  }
+
+  // 添加到列表开头
+  rawArticleList.value.unshift(newArticle)
+
+  // 重置到第一页
+  currentPage.value = 1
+
+  ElMessage.success('已创建新文章，请编辑')
 }
 
 // 删除文章
@@ -185,8 +423,18 @@ const handleDelete = (article: Article) => {
     type: 'warning',
   })
     .then(() => {
-      // 这里应该调用API删除
-      ElMessage.success('删除成功')
+      // 从前端数据中删除
+      const index = rawArticleList.value.findIndex((item) => item.id === article.id)
+      if (index !== -1) {
+        rawArticleList.value.splice(index, 1)
+
+        // 如果当前页没有数据了，且不是第一页，则跳转到前一页
+        if (filteredArticleList.value.length === 0 && currentPage.value > 1) {
+          currentPage.value = currentPage.value - 1
+        }
+
+        ElMessage.success('删除成功')
+      }
     })
     .catch(() => {
       // 用户取消
@@ -206,12 +454,11 @@ const refreshList = () => {
 // 分页事件
 const handleSizeChange = (size: number) => {
   pageSize.value = size
-  // 重新获取数据
+  currentPage.value = 1
 }
 
 const handleCurrentChange = (page: number) => {
   currentPage.value = page
-  // 重新获取数据
 }
 
 onMounted(() => {
@@ -252,13 +499,9 @@ onMounted(() => {
     margin-bottom: 20px;
   }
 
-  .article-link {
+  .article-title {
     color: #409eff;
-    text-decoration: none;
-
-    &:hover {
-      text-decoration: underline;
-    }
+    cursor: default;
   }
 
   .pagination {

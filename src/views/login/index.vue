@@ -76,6 +76,11 @@ import { ElMessage, ElForm } from 'element-plus'
 import { User, Lock } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores'
 
+// 添加这行代码，显式定义组件名为多单词名称
+defineOptions({
+  name: 'LoginPage',
+})
+
 const router = useRouter()
 const userStore = useUserStore()
 
